@@ -1,416 +1,331 @@
-# MongoDB: полная теория для бэкенда (с примерами)
+# MongoDB для бэкенда: теория, Docker, Motor, Beanie и структура проекта
 
-## 1. Что это и как устроено
-
-**MongoDB** — документо-ориентированная NoSQL СУБД. Данные хранятся как **документы** (JSON-подобные объекты) в **коллекциях** внутри **базы данных**.
-
-| Реляционная СУБД | MongoDB        |
-|------------------|----------------|
-| Таблица          | Коллекция      |
-| Строка           | Документ       |
-| Колонка          | Поле           |
-| JOIN             | `$lookup`, вложение, ручные запросы |
-
-**BSON** — бинарное представление JSON с дополнительными типами: `ObjectId`, `Date`, `Binary`, `Decimal128` и т.д. Лимит размера одного документа — **16 МБ**.
-
-**Основные компоненты:**
-
-- **mongod** — сервер БД.
-- **mongosh** — интерактивная оболочка (раньше `mongo`).
-- **Replica Set** — несколько узлов с репликацией (высокая доступность).
-- **Sharding** — горизонтальное разбиение данных по кластеру.
+Документ для конспекта: основы Mongo, **полный** `docker-compose` для Mongo, асинхронный стек **Motor + Beanie**, и как **разнести код по файлам** (конфиг, подключение к БД, внешние клиенты, операции с данными, сервисы, роуты).
 
 ---
 
-## 2. Установка и запуск (локально)
+## 1. MongoDB кратко
 
-**Docker (типичный вариант для разработки):**
+- **Документная** NoSQL БД: данные в **коллекциях** как **документы** (BSON ≈ JSON + типы вроде `ObjectId`, `Date`).
+- **База** — логический контейнер коллекций. Часто одна БД на приложение (`api_weather`), внутри коллекции `cities`, `weather_records`.
+- Лимит одного документа — **16 МБ**.
+- Нет таблиц и JOIN как в SQL; связи — **вложение** в документ или **ссылка** (`_id` другого документа) + `$lookup` в aggregation.
+
+| SQL            | Mongo        |
+|----------------|--------------|
+| Таблица        | Коллекция    |
+| Строка         | Документ     |
+| Колонка        | Поле         |
+
+---
+
+## 2. Полный `docker-compose.yml` для Mongo
+
+Ниже готовый файл для локальной разработки: порт, том для данных, опциональный root-пользователь, healthcheck, именованный volume внизу файла.
 
 ```yaml
-# фрагмент docker-compose
 services:
   mongo:
     image: mongo:7
+    container_name: api-weather-mongo
+    restart: unless-stopped
     ports:
       - "27017:27017"
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: secret
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  mongo_data:
 ```
 
-Строка подключения:
+### Зачем каждая часть
 
-```text
-mongodb://root:secret@localhost:27017/?authSource=admin
+| Ключ | Назначение |
+|------|------------|
+| `services.mongo` | Имя сервиса в Compose (для `docker compose up mongo`). |
+| `image: mongo:7` | Официальный образ MongoDB 7. |
+| `container_name` | Удобное имя контейнера в `docker ps`. |
+| `restart: unless-stopped` | Автоперезапуск, пока ты сам не остановил. |
+| `ports: "27017:27017"` | С хоста `localhost:27017` → в контейнер. |
+| `environment` | При **первом** создании тома задаёт root (`root` / `secret`). Без этих переменных Mongo поднимается **без** auth (только для простого локального теста). |
+| `volumes: mongo_data:/data/db` | Данные БД в Docker volume; при пересоздании контейнера данные сохраняются. `/data/db` — стандартный путь данных в образе `mongo`. |
+| `healthcheck` | Проверка, что `mongod` отвечает (удобно для `depends_on: condition: service_healthy`). |
+
+### Запуск
+
+```bash
+cd путь/к/проекту
+docker compose up -d mongo
+docker compose ps
+docker compose logs -f mongo
 ```
 
-**Без авторизации (только локально):**
+### `.env` для приложения (с auth как выше)
 
-```text
-mongodb://localhost:27017
+```env
+MONGO_URL=mongodb://root:secret@localhost:27017/?authSource=admin
+MONGO_DB=api_weather
+```
+
+### Вариант без логина (только учеба)
+
+Убери блок `environment` и используй:
+
+```env
+MONGO_URL=mongodb://localhost:27017
 ```
 
 ---
 
-## 3. Подключение из Python (PyMongo, синхронно)
+## 3. Разделение логики по файлам (бэкенд)
 
-```bash
-pip install pymongo
+Идея: **роут** не знает про BSON, **сервис** не знает про HTTP, **репозиторий** только про коллекции, **один клиент БД** на приложение.
+
+### Рекомендуемая схема папок (пример под `src/`)
+
+```
+src/
+├── config.py              # Pydantic Settings: MONGO_URL, MONGO_DB, ключи API
+├── db.py                  # Жизненный цикл Mongo: клиент, get_database(), init_beanie, close
+├── models/                # Только Beanie Document (схема коллекций)
+│   ├── __init__.py
+│   ├── city.py
+│   └── weather_record.py
+├── schemas/               # Pydantic: тела запросов/ответов API (не путать с Document)
+│   ├── __init__.py
+│   └── city.py
+├── repositories/          # «Операции» с БД: CRUD, фильтры (без бизнес-правил HTTP)
+│   ├── __init__.py
+│   └── city_repository.py
+├── services/              # Бизнес-логика: оркестрация репозиториев + внешних клиентов
+│   ├── __init__.py
+│   └── city_service.py
+├── clients/               # Внешние HTTP/API (не Mongo!): OpenWeather, платежи и т.д.
+│   ├── __init__.py
+│   └── weather_client.py
+├── routes/                # FastAPI: Depends, вызов сервиса, статус-коды
+│   ├── __init__.py
+│   └── cities.py
+└── app.py                 # FastAPI app, lifespan, include_router
 ```
 
-```python
-from pymongo import MongoClient
-from pymongo.server_api import ServerApi
+### Кто за что отвечает
 
-# Локально без auth
-client = MongoClient("mongodb://localhost:27017")
+| Файл / слой | Ответственность |
+|-------------|-----------------|
+| **config.py** | Читает `.env`, валидирует настройки (`MONGO_URL`, `OWM_API_KEY`, …). |
+| **db.py** | Создаёт `AsyncIOMotorClient`, отдаёт `database`, при Beanie — `await init_beanie(...)`, на shutdown — `client.close()`. Здесь **нет** бизнес-логики. |
+| **clients/** | Клиенты к **внешним** сервисам (`httpx.AsyncClient` → OpenWeather). Не путать с «Mongo client»: это отдельный модуль. |
+| **repositories/** | Только доступ к данным: `insert`, `find`, `update`, `delete` (через Motor коллекции или Beanie модели). |
+| **services/** | Правила: «нельзя дублировать город», «после добавления города — запланировать погоду», вызов репозитория + `weather_client`. |
+| **routes/** | HTTP: парсинг запроса, `Depends`, вызов сервиса, формирование ответа. |
+| **models/** (Beanie) | Структура документа в Mongo + индексы в `Settings`. |
+| **schemas/** (Pydantic) | Контракт API (вход/выход), можно отличать от внутренней модели БД. |
 
-# С авторизацией и явной базой для учётных данных
-uri = "mongodb://user:pass@localhost:27017/?authSource=admin"
-client = MongoClient(uri)
+### Поток запроса
 
-db = client["myapp"]           # база данных
-users = db["users"]          # коллекция
-
-# Проверка соединения
-client.admin.command("ping")
+```
+HTTP → routes → services → repositories → Mongo
+                    ↘ clients → внешний API
 ```
 
-**Асинхронно (Motor — для FastAPI и т.п.):**
+### Альтернатива без Beanie
 
-```bash
-pip install motor
-```
+Те же папки; в **repositories** используешь `db["cities"]` и `await collection.insert_one({...})` вместо `Document.insert()`.
+
+---
+
+## 4. Motor — что это
+
+**Motor** — официальный **асинхронный** драйвер для MongoDB в Python. Под капотом совместим с **PyMongo**, API похож, операции через **`await`**.
+
+- Пакет в `requirements.txt`: **`motor`** (не `pymotor`).
+- Импорт клиента: `from motor.motor_asyncio import AsyncIOMotorClient`.
+
+### Минимальный `db.py` (только Motor)
 
 ```python
 from motor.motor_asyncio import AsyncIOMotorClient
 
-client = AsyncIOMotorClient("mongodb://localhost:27017")
-db = client["myapp"]
-users = db["users"]
+_client: AsyncIOMotorClient | None = None
 
-# Пример: await users.find_one({"email": "a@b.com"})
+
+def get_client() -> AsyncIOMotorClient:
+    if _client is None:
+        raise RuntimeError("Mongo client is not initialized")
+    return _client
+
+
+async def connect_mongo(uri: str) -> None:
+    global _client
+    _client = AsyncIOMotorClient(uri)
+    await _client.admin.command("ping")
+
+
+async def close_mongo() -> None:
+    global _client
+    if _client is not None:
+        _client.close()
+        _client = None
+
+
+def get_database(name: str):
+    return get_client()[name]
 ```
 
----
+В `lifespan` FastAPI: `await connect_mongo(settings.MONGO_URL)` → `yield` → `await close_mongo()`.
 
-## 4. Базовые сущности
-
-- **`_id`** — первичный ключ. Если не указать при вставке, MongoDB создаст `ObjectId`.
-- **База** — изолированный набор коллекций.
-- **Коллекция** — не требует заранее описанной схемы (но схему можно задать валидацией).
-
-Пример документа:
-
-```json
-{
-  "_id": { "$oid": "6610..." },
-  "email": "user@example.com",
-  "profile": { "name": "Иван", "city": "Москва" },
-  "tags": ["dev", "backend"],
-  "createdAt": { "$date": "2026-04-09T12:00:00.000Z" }
-}
-```
-
----
-
-## 5. CRUD в mongosh (оболочка)
-
-Переключение базы и коллекции:
-
-```javascript
-use myapp
-db.users.insertOne({ email: "a@b.com", name: "Ann" })
-db.users.find()
-db.users.findOne({ email: "a@b.com" })
-```
-
-### Create
-
-```javascript
-db.users.insertOne({ email: "b@c.com", name: "Bob", score: 0 })
-db.users.insertMany([
-  { email: "c@d.com", name: "Carl" },
-  { email: "d@e.com", name: "Dan" }
-])
-```
-
-### Read (find)
-
-Фильтрация и операторы:
-
-```javascript
-// Равенство
-db.users.find({ name: "Bob" })
-
-// Сравнения: $gt, $gte, $lt, $lte, $ne
-db.users.find({ score: { $gte: 10 } })
-
-// Вхождение в список
-db.users.find({ email: { $in: ["a@b.com", "b@c.com"] } })
-
-// Логика: $and, $or, $not, $nor
-db.users.find({ $or: [{ score: { $lt: 5 } }, { name: "Carl" }] })
-
-// Существование поля
-db.users.find({ city: { $exists: true } })
-
-// Регулярное выражение (поиск по подстроке, осторожно с индексами)
-db.users.find({ name: /^B/ })
-
-// Проекция: только нужные поля (1 — включить, 0 — исключить _id)
-db.users.find({}, { email: 1, name: 1, _id: 0 })
-
-// Сортировка, пропуск, лимит
-db.users.find().sort({ score: -1 }).skip(10).limit(5)
-```
-
-### Update
-
-```javascript
-// Обновить один документ
-db.users.updateOne(
-  { email: "a@b.com" },
-  { $set: { city: "SPb" }, $inc: { score: 1 } }
-)
-
-// Массивы: $push, $pull, $addToSet
-db.users.updateOne(
-  { email: "a@b.com" },
-  { $push: { tags: "mongodb" } }
-)
-
-// upsert: создать, если не нашли
-db.users.updateOne(
-  { email: "new@x.com" },
-  { $set: { name: "New" } },
-  { upsert: true }
-)
-
-// Много документов
-db.users.updateMany({ score: { $lt: 0 } }, { $set: { score: 0 } })
-```
-
-### Delete
-
-```javascript
-db.users.deleteOne({ email: "a@b.com" })
-db.users.deleteMany({ score: { $lt: -100 } })
-```
-
----
-
-## 6. CRUD в PyMongo (те же операции)
+### Операции на коллекции (без Beanie)
 
 ```python
-from datetime import datetime, timezone
-from bson import ObjectId
-
-# Create
-result = users.insert_one({
-    "email": "x@y.com",
-    "name": "X",
-    "createdAt": datetime.now(timezone.utc),
-})
-print(result.inserted_id)
-
-users.insert_many([{"email": "1@a.com"}, {"email": "2@a.com"}])
-
-# Read
-doc = users.find_one({"email": "x@y.com"})
-for u in users.find({"score": {"$gte": 10}}).sort("score", -1).limit(5):
-    print(u)
-
-# По _id
-oid = ObjectId("6610abcdef6610abcdef12")
-users.find_one({"_id": oid})
-
-# Update
-users.update_one(
-    {"email": "x@y.com"},
-    {"$set": {"city": "MSK"}, "$inc": {"visits": 1}},
-)
-users.update_many({"inactive": True}, {"$set": {"archived": True}})
-
-# Delete
-users.delete_one({"email": "x@y.com"})
-users.delete_many({"archived": True})
+db = get_database("api_weather")
+cities = db["cities"]
+await cities.insert_one({"name": "Moscow"})
+doc = await cities.find_one({"name": "Moscow"})
 ```
 
 ---
 
-## 7. Индексы
+## 5. Beanie — что это и связь с Motor
 
-Индексы ускоряют **чтение и сортировку** по заданным полям, но **замедляют вставку/обновление**.
+**Beanie** — **async ODM** на **Pydantic v2**: модели документов как классы, запросы `await User.find_one(...)`. Работает **только поверх Motor** (`AsyncIOMotorClient` + объект базы).
 
-```javascript
-// Одно поле
-db.users.createIndex({ email: 1 }, { unique: true })
+1. Описываешь класс `Document`.
+2. При старте приложения вызываешь **`await init_beanie(database=db, document_models=[City, ...])`**.
+3. В репозитории или сервисе вызываешь методы модели.
 
-// Составной (порядок важен: сначала равенство, потом диапазон)
-db.orders.createIndex({ userId: 1, createdAt: -1 })
-
-// TTL — автоудаление документов через N секунд (поле должно быть Date)
-db.sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
-
-// Текстовый поиск
-db.articles.createIndex({ title: "text", body: "text" })
-
-// Список индексов
-db.users.getIndexes()
-```
-
-**PyMongo:**
+### Инициализация в `lifespan`
 
 ```python
-users.create_index([("email", 1)], unique=True)
-users.create_index([("userId", 1), ("createdAt", -1)])
+from motor.motor_asyncio import AsyncIOMotorClient
+from beanie import init_beanie
+from src.models.city import City  # пример пути
+
+async def lifespan(app):
+    client = AsyncIOMotorClient(settings.MONGO_URL)
+    db = client[settings.MONGO_DB]
+    await init_beanie(database=db, document_models=[City])
+    app.state.mongo_client = client
+    yield
+    client.close()
 ```
 
-**Проверка плана запроса:**
-
-```javascript
-db.users.find({ email: "a@b.com" }).explain("executionStats")
-```
-
-Ищи `IXSCAN` (хорошо) vs `COLLSCAN` (полный перебор — плохо на больших коллекциях).
-
----
-
-## 8. Aggregation Pipeline
-
-Цепочка этапов: данные проходят через `$match` → `$group` → …
-
-```javascript
-db.orders.aggregate([
-  { $match: { status: "paid", createdAt: { $gte: ISODate("2026-01-01") } } },
-  {
-    $group: {
-      _id: "$userId",
-      total: { $sum: "$amount" },
-      count: { $sum: 1 },
-    },
-  },
-  { $sort: { total: -1 } },
-  { $limit: 10 },
-])
-```
-
-**Связь коллекций (`$lookup` — аналог LEFT JOIN):**
-
-```javascript
-db.orders.aggregate([
-  { $match: { _id: ObjectId("...") } },
-  {
-    $lookup: {
-      from: "users",
-      localField: "userId",
-      foreignField: "_id",
-      as: "user",
-    },
-  },
-  { $unwind: "$user" },
-])
-```
-
-**PyMongo:**
+### Пример модели
 
 ```python
-pipeline = [
-    {"$match": {"status": "paid"}},
-    {"$group": {"_id": "$userId", "sum": {"$sum": "$amount"}}},
-]
-list(db["orders"].aggregate(pipeline))
+from beanie import Document, Indexed
+
+
+class City(Document):
+    name: Indexed(str, unique=True)
+
+    class Settings:
+        name = "cities"
 ```
 
----
-
-## 9. Моделирование: embedding vs referencing
-
-**Embedding** — вложить связанные данные в один документ (заказ и позиции внутри заказа).
-
-- Плюсы: один запрос, быстрый типичный сценарий «прочитать заказ целиком».
-- Минусы: дублирование, лимит 16 МБ, сложнее частично обновлять огромные вложения.
-
-**Referencing** — хранить `userId` в заказе, пользователь в отдельной коллекции.
-
-- Плюсы: нормализация, одно место правки профиля.
-- Минусы: два запроса или aggregation с `$lookup`.
-
-На практике часто **комбинируют**: часто читаемое — вложить, редкое и тяжёлое — по ссылке.
-
----
-
-## 10. Транзакции (несколько операций атомарно)
-
-Нужны **replica set** (или sharded cluster). В PyMongo:
+### Пример «операции» в сервисе/репозитории
 
 ```python
-with client.start_session() as session:
-    with session.start_transaction():
-        db["accounts"].update_one(
-            {"_id": acc_a},
-            {"$inc": {"balance": -100}},
-            session=session,
-        )
-        db["accounts"].update_one(
-            {"_id": acc_b},
-            {"$inc": {"balance": 100}},
-            session=session,
-        )
+city = City(name="Moscow")
+await city.insert()
+found = await City.find_one(City.name == "Moscow")
 ```
 
-В mongosh аналогично через `session.startTransaction()` / `commitTransaction` / `abortTransaction`.
+### Motor vs Beanie
+
+| | Motor напрямую | Beanie |
+|---|----------------|--------|
+| Схема | Словари / ручная валидация | Классы + Pydantic |
+| Запросы | `collection.find_one({...})` | `Model.find_one(Model.field == x)` |
+| Индексы | `create_index` вручную | Часто в `Settings` / `Indexed` |
 
 ---
 
-## 11. Валидация схемы (на уровне коллекции)
+## 6. Базовые сущности Mongo
+
+- **`_id`** — первичный ключ; по умолчанию `ObjectId`.
+- **Коллекция** — не требует заранее заданной схемы (валидацию можно включить в БД).
+
+---
+
+## 7. CRUD в mongosh (кратко)
 
 ```javascript
-db.createCollection("users", {
-  validator: {
-    $jsonSchema: {
-      bsonType: "object",
-      required: ["email", "createdAt"],
-      properties: {
-        email: { bsonType: "string", pattern: "^.+@.+$" },
-        age: { bsonType: ["int", "long"], minimum: 0 },
-        createdAt: { bsonType: "date" },
-      },
-    },
-  },
-  validationLevel: "strict",
-  validationAction: "error",
-})
+use api_weather
+db.cities.insertOne({ name: "Moscow" })
+db.cities.find()
+db.cities.findOne({ name: "Moscow" })
+db.cities.updateOne({ name: "Moscow" }, { $set: { country: "RU" } })
+db.cities.deleteOne({ name: "Moscow" })
 ```
 
----
-
-## 12. Безопасность и эксплуатация
-
-- Включить **аутентификацию**, не использовать пустой пароль в проде.
-- Ограничить доступ по сети (firewall, только приложение и админы).
-- **TLS** для соединений.
-- Регулярные **бэкапы** (mongodump / облачные снапшоты) и тест восстановления.
-- Не хранить секреты в коде — переменные окружения, секрет-хранилища.
+Операторы фильтра: `$gt`, `$gte`, `$lt`, `$in`, `$or`, `$exists`, и т.д.
 
 ---
 
-## 13. Чек-лист для бэкенда
+## 8. CRUD в PyMongo / Motor (идея)
 
-1. Строка подключения из конфига, один `MongoClient` на процесс (переиспользовать).
-2. Индексы под реальные `find` + `sort` + уникальность там, где нужно.
-3. Даты в **UTC**, в API отдавать ISO-8601.
-4. Для тяжёлых отчётов — aggregation, не N+1 запросов в цикле.
-5. Следить за `explain`, медленными запросами, размером документов.
-6. При необходимости согласованности между коллекциями — транзакции.
+Те же операции: `insert_one`, `find_one`, `update_one` с `$set`, `delete_one`. В Motor всё с **`await`**.
+
+---
+
+## 9. Индексы
+
+Ускоряют чтение и сортировку, замедляют запись.
+
+```javascript
+db.cities.createIndex({ name: 1 }, { unique: true })
+```
+
+В Beanie — `Indexed` или `Settings.indexes`.
+
+Проверка плана: `find(...).explain("executionStats")` — искать `IXSCAN` вместо `COLLSCAN`.
+
+---
+
+## 10. Aggregation
+
+Цепочка этапов: `$match`, `$group`, `$project`, `$sort`, `$lookup` (связь коллекций).
+
+---
+
+## 11. Embedding vs referencing
+
+- **Вложение** — связанные данные в одном документе (быстрее читать целиком, лимит 16 МБ).
+- **Ссылка** — `city_id` в другой коллекции (нормализация, несколько запросов или `$lookup`).
+
+---
+
+## 12. Транзакции
+
+Несколько операций атомарно — через `client.start_session()` и `start_transaction()` (нужен replica set в проде). В простом одноузловом Docker часто без транзакций обходятся или поднимают replica set отдельно.
+
+---
+
+## 13. Безопасность
+
+- Auth, сеть, TLS в проде.
+- Секреты в `.env`, не в git.
+- Бэкапы и проверка восстановления.
 
 ---
 
 ## 14. Полезные ссылки
 
-- Документация: [https://www.mongodb.com/docs/](https://www.mongodb.com/docs/)
-- PyMongo: [https://www.mongodb.com/docs/languages/python/pymongo-driver/current/](https://www.mongodb.com/docs/languages/python/pymongo-driver/current/)
+- MongoDB: [https://www.mongodb.com/docs/](https://www.mongodb.com/docs/)
 - Motor: [https://motor.readthedocs.io/](https://motor.readthedocs.io/)
+- Beanie: [https://beanie-odm.dev/](https://beanie-odm.dev/)
+- PyMongo: [https://www.mongodb.com/docs/languages/python/pymongo-driver/current/](https://www.mongodb.com/docs/languages/python/pymongo-driver/current/)
 
-Файл можно дополнять своими заметками по конкретному проекту (схемы коллекций, индексы, примеры запросов из логов).
+---
+
+*Файл можно дополнять схемами коллекций своего проекта и примерами запросов из логов.*
