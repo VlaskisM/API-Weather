@@ -23,5 +23,4 @@ async def add_city(city: CityCreate):
     city = await city_service.add_city(city.name_city)
     if city is None:
         raise HTTPException(status_code=400, detail="City already exists")
-
     return city

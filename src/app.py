@@ -1,7 +1,20 @@
 from fastapi import FastAPI
 from src.routes.cities import router as cities_router
+from contextlib import asynccontextmanager
+from src.db import ConnectionMongo
 
-app = FastAPI()
+conn = ConnectionMongo()
+
+@asynccontextmanager
+async def lifespan(app : FastAPI):
+    try:
+        await conn.init()
+        yield
+    finally:
+        await conn.close()
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.include_router(cities_router)
 

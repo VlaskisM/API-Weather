@@ -1,13 +1,12 @@
 from abc import ABC, abstractmethod
 from src.uow import UnitOfWork
 from src.schemas.schemas_city import CityOutPut
-from datetime import datetime
 from src.clients.weather_client import WeatherClient
 
 class CityServiceInterface(ABC):
 
     @abstractmethod
-    async def add_city(self, name_city: str) -> str | None:
+    async def add_city(self, name_city: str) -> CityOutPut | None:
         pass
 
 class CityService(CityServiceInterface):
@@ -39,4 +38,8 @@ class CityService(CityServiceInterface):
         )
         await uow.cities.add_city(city)
         return city
+    
+                            
+        
+        
 

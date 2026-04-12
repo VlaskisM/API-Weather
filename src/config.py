@@ -5,6 +5,9 @@ class Settings(BaseSettings):
 
     MONGO_PORT: int
     MONGO_HOST: str
+    MONGO_DB_NAME: str
+    OWM_API_KEY: str
+    OWM_URL: str
 
     @property
     def mongo_url(self) -> str:
