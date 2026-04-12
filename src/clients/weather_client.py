@@ -1,4 +1,4 @@
-from httpx import AsyncClient
+from httpx import AsyncClient, TimeoutException, RequestError, HTTPStatusError
 from src.config import settings
 from abc import ABC, abstractmethod
 
@@ -6,6 +6,13 @@ from abc import ABC, abstractmethod
 
 class CityNotFoundError(Exception):
     ...
+
+class WeatherApiTimeoutError(Exception):
+    ...
+
+class ServerErrorOWM(Exception):
+    ...
+
 
 class WeatherClientInterface(ABC):
     
@@ -26,10 +33,19 @@ class WeatherClient(WeatherClientInterface):
             "appid" : url
         }
         
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(url, params=params)
-            resp.raise_for_status()
-            data = resp.json()
+        try:
+            async with AsyncClient(timeout=10) as client:
+                resp = await client.get(url, params=params)
+                resp.raise_for_status()
+                data = resp.json()
+        except TimeoutException as e:
+            raise WeatherApiTimeoutError("OWM timeout") from e
+        except HTTPStatusError as e:
+            status = e.response.status_code()
+            raise ServerErrorOWM(f"OWM HTTP error: {status}") from e
+        except RequestError as e:
+            raise RuntimeError("OWM network error") from e
+        
 
         if not data:
             raise CityNotFoundError(f"City {name_city} not found")
