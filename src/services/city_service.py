@@ -11,12 +11,12 @@ class CityServiceInterface(ABC):
 
 class CityService(CityServiceInterface):
 
-    def __init__(self, uow: UnitOfWork, weather_client: WeatherClient):
-        self._uow = uow 
+    def __init__(self, uow_factory: UnitOfWork, weather_client: WeatherClient):
+        self._uow_factory = uow_factory()
         self._weather_client = weather_client
 
     async def add_city(self, name_city: str) -> CityOutPut | None:
-        async with self._uow() as uow:
+        async with self._uow_factory() as uow:
             city = await uow.cities.get_by_name(name_city)
             if city:
                 return None

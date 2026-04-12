@@ -9,8 +9,8 @@ class ConnectionMongo:
     client: AsyncMongoClient | None = None
 
     async def init(self):
-        client = AsyncMongoClient(settings.mongo_url)
-        db = settings.MONGO_DB_NAME
+        self.client = AsyncMongoClient(settings.mongo_url)
+        db = self.client[settings.MONGO_DB_NAME]
         await init_beanie(database=db, document_models=[City])
 
 
@@ -19,6 +19,12 @@ class ConnectionMongo:
             await self.client.close()
             self.client = None
 
+
+    async def get_client(self):
+        return self.client
+
+
+conn = ConnectionMongo()
 
 
 
