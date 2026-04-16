@@ -1,5 +1,5 @@
 from typing import Annotated, Callable
-from src.db import conn
+from src.db.db_mongo import conn
 from fastapi import Depends
 from src.unit_of_work import UnitOfWork
 from src.services.city_service import CityService

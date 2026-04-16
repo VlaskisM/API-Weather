@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
-from src.uow import UnitOfWork
+from src.unit_of_work import UnitOfWork
 from src.schemas.schemas_city import CityOutPut
+from typing import Callable
 from src.clients.weather_client import WeatherClient
 
 class CityServiceInterface(ABC):
@@ -11,8 +12,8 @@ class CityServiceInterface(ABC):
 
 class CityService(CityServiceInterface):
 
-    def __init__(self, uow_factory: UnitOfWork, weather_client: WeatherClient):
-        self._uow_factory = uow_factory()
+    def __init__(self, uow_factory: Callable[[], UnitOfWork], weather_client: WeatherClient):
+        self._uow_factory = uow_factory
         self._weather_client = weather_client
 
     async def add_city(self, name_city: str) -> CityOutPut | None:
@@ -22,10 +23,9 @@ class CityService(CityServiceInterface):
                 return None
             
             city = await self._create_city_output(
-                name_city=name_city,
+                name_city=name_city.strip().lower(),
                 uow=uow
             )
-            await uow.commit()
             return city
 
     

@@ -1,10 +1,10 @@
 from abc import ABC, abstractmethod
-from pymongo_asyncio import AsyncMongoClient
-from pymongo import ClientSession
-from src.repositories.city_repository import AbstractCityRepository, CityRepository
+from typing import Any
+from src.repositories.city_repository_cache import AbstractCacheCityRepository, CacheCityRepository
+from src.db.db_redis import redis
 
 class UnitOfWorkInterface(ABC):
-    cities : AbstractCityRepository
+    cities : AbstractCacheCityRepository
 
     @abstractmethod
     async def __aenter__(self):
@@ -27,23 +27,27 @@ class UnitOfWork(UnitOfWorkInterface):
 
     def __init__(self, client):
         self._client = client
-        self._session: ClientSession | None = None
-        self._transaction = None
-        self.cities: AbstractCityRepository
+        self._session: Any | None = None
+        self.cities: AbstractCacheCityRepository
 
 
     async def __aenter__(self):
-        self._session = await self._client.start_session() # Тут возвращается контекстный менеджер
-        self._transaction = self._session.start_transaction()
-        await self._transaction.__aenter__()
-        self.cities = CityRepository(session = self._session)
+        self._session = self._client.start_session() # Тут возвращается контекстный менеджер
+        self._transaction = await self._session.start_transaction()
+        self.cities = CacheCityRepository(session = self._session, redis = redis)
         return self
 
-    async def __aexit__(self, *args):
-        ...
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            await self.rollback()
+        else:
+            await self.commit()
+        
+        if self._session is not None:
+            self._session.end_session()
 
     async def commit(self):
-        return await super().commit()
+        await self._session.commit_transaction()
 
     async def rollback(self):
-        return await super().rollback()
+        await self._session.abort_transaction()
