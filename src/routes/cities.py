@@ -17,10 +17,11 @@ async def add_city(
     city: CityCreate,
     city_service: DepCityService
 ):
-    city = await city_service.add_city(city.name_city)
+    city = await city_service.add_city(city.name_city.strip().lower())
     if city is None:
         raise HTTPException(status_code=400, detail="City already exists")
     return city
+
 
 
 @router.get("/all", response_model=list[CityOutPut])
@@ -32,12 +33,13 @@ async def get_all_citys(
     return await city_service.get_all_citys(limit=limit, offset=offset)
 
 
+
 @router.delete("/cities/{name_city}")
 async def delete_city(
     name_city: str,
     city_service: DepCityService
 ):
-    city = await city_service.del_city(name_city)
+    city = await city_service.del_city(name_city.strip().lower())
     if city:
         return city
     raise HTTPException(status_code=400, detail="City not found")

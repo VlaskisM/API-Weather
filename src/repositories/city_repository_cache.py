@@ -10,15 +10,20 @@ class AbstractCacheCityRepository(ABC):
 
     @abstractmethod
     async def get_by_name(self, name_city: str) -> City | None:
-        ...
+        pass
 
     @abstractmethod
     async def add_city(self, city: CityOutPut) -> None:
-        ...
+        pass
 
     @abstractmethod
     async def get_all_citys(self, limit: int, offset: int) -> list[City]:
-        ...
+        pass
+
+    @abstractmethod
+    async def del_city(self, name_city: str) -> City:
+        pass
+
 
 class CacheCityRepository:
 
@@ -26,6 +31,8 @@ class CacheCityRepository:
         self._session = session
         self._redis = redis
         self._rep = rep
+
+
 
     async def get_by_name(self, name_city: str) -> City | None:
         key = self.get_key(name_city)
@@ -41,13 +48,27 @@ class CacheCityRepository:
         return city
 
 
+
     async def add_city(self, city: CityOutPut) -> None:
         await self._rep.add_city(city=city, _session=self._session)
         key = self.get_key(city.name_city)
         await self._redis.set(key, city.model_dump_json(), ex=3600)
 
+
+
     async def get_all_citys(self, limit: int, offset: int) -> list[City]:
         return await self._rep.get_all_citys(_session=self._session, limit=limit, offset=offset)
+
+
+
+    async def del_city(self, name_city: str) -> City:
+        key = self.get_key(name_city)
+        name_city_cache = await self._redis.get(key)
+        if name_city_cache is not None:
+            await self._redis.delete(key)
+
+        city = await self._rep.del_city(name_city=name_city, _session=self._session)
+        return city
 
 
     @staticmethod

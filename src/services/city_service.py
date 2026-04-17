@@ -31,12 +31,12 @@ class CityService(CityServiceInterface):
 
     async def add_city(self, name_city: str) -> CityOutPut | None:
         async with self._uow_factory() as uow:
-            city = await uow.cities.get_by_name(name_city.strip().lower())
+            city = await uow.cities.get_by_name(name_city)
             if city:
                 return None
             
             city = await self._create_city_output(
-                name_city=name_city.strip().lower(),
+                name_city=name_city,
                 uow=uow
             )
             return city
@@ -60,8 +60,8 @@ class CityService(CityServiceInterface):
 
     async def del_city(self, name_city) -> CityOutPut:
         async with self._uow_factory() as uow:
-            city = await uow.cities.get_by_name(name_city.strip().lower())
-            if city:
+            city = await uow.cities.get_by_name(name_city)
+            if not city:
                 return None
 
             city = await uow.cities.del_city(name_city)
