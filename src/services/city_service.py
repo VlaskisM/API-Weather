@@ -3,11 +3,24 @@ from src.unit_of_work import UnitOfWork
 from src.schemas.schemas_city import CityOutPut
 from typing import Callable
 from src.clients.weather_client import WeatherClient
+from src.models.model_city import City
 
 class CityServiceInterface(ABC):
 
     @abstractmethod
     async def add_city(self, name_city: str) -> CityOutPut | None:
+        pass
+
+    @abstractmethod
+    async def get_all_citys(self) -> list[CityOutPut]:
+        pass
+
+    @abstractmethod
+    async def get_all_citys(self, limit: int, offset: int) -> list[CityOutPut]:
+        pass
+
+    @abstractmethod
+    async def del_city(self, name_city: str) -> CityOutPut:
         pass
 
 class CityService(CityServiceInterface):
@@ -18,7 +31,7 @@ class CityService(CityServiceInterface):
 
     async def add_city(self, name_city: str) -> CityOutPut | None:
         async with self._uow_factory() as uow:
-            city = await uow.cities.get_by_name(name_city)
+            city = await uow.cities.get_by_name(name_city.strip().lower())
             if city:
                 return None
             
@@ -38,6 +51,31 @@ class CityService(CityServiceInterface):
         )
         await uow.cities.add_city(city)
         return city
+
+    async def get_all_citys(self, limit: int, offset: int) -> list[CityOutPut]:
+        async with self._uow_factory() as uow:
+            cities = await uow.cities.get_all_citys(limit=limit, offset=offset)
+            return [self._to_city_output(city) for city in cities]
+
+
+    async def del_city(self, name_city) -> CityOutPut:
+        async with self._uow_factory() as uow:
+            city = await uow.cities.get_by_name(name_city.strip().lower())
+            if city:
+                return None
+
+            city = await uow.cities.del_city(name_city)
+
+            return self._to_city_output(city)
+
+
+    @staticmethod
+    def _to_city_output(city: City) -> CityOutPut:
+        return CityOutPut(
+            name_city=city.name_city,
+            latitude=city.latitude,
+            longitude=city.longitude,
+        )
     
                             
         

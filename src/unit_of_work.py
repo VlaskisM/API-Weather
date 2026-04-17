@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 from src.repositories.city_repository_cache import AbstractCacheCityRepository, CacheCityRepository
 from src.db.db_redis import redis
+from src.repositories.city_repository import CityRepository
 
 class UnitOfWorkInterface(ABC):
     cities : AbstractCacheCityRepository
@@ -32,9 +33,9 @@ class UnitOfWork(UnitOfWorkInterface):
 
 
     async def __aenter__(self):
-        self._session = self._client.start_session() # Тут возвращается контекстный менеджер
-        self._transaction = await self._session.start_transaction()
-        self.cities = CacheCityRepository(session = self._session, redis = redis)
+        self._session = self._client.start_session()
+        await self._session.start_transaction()
+        self.cities = CacheCityRepository(session=self._session, redis=redis, rep=CityRepository())
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -44,10 +45,12 @@ class UnitOfWork(UnitOfWorkInterface):
             await self.commit()
         
         if self._session is not None:
-            self._session.end_session()
+            await self._session.end_session()
 
     async def commit(self):
-        await self._session.commit_transaction()
+        if self._session is not None:
+            await self._session.commit_transaction()
 
     async def rollback(self):
-        await self._session.abort_transaction()
+        if self._session is not None:
+            await self._session.abort_transaction()
