@@ -1,9 +1,13 @@
-from typing import Annotated, Callable
+from typing import Annotated, Callable, TYPE_CHECKING
 from src.db.db_mongo import conn
 from fastapi import Depends
 from src.unit_of_work import UnitOfWork
 from src.services.city_service import CityService
 from src.clients.weather_client import WeatherClient
+from src.db.db_redis import redis
+from src.repositories.city_repository import CityRepository
+from src.services.weather_service import WeatherService
+from src.repositories.weather_repository import WeatherRepository
 
 
 async def get_client():
@@ -14,7 +18,15 @@ async def get_client():
 
 
 async def get_uow_factory(client=Depends(get_client)):
-    return lambda: UnitOfWork(client=client)
+    return lambda: UnitOfWork(
+        client=client,
+        redis=redis,
+        rep=CityRepository(),
+        weather_rep=WeatherRepository()
+        )
+
+
+
 
 
 async def get_city_service(
@@ -26,6 +38,24 @@ async def get_city_service(
     )
 
 DepCityService = Annotated[CityService, Depends(get_city_service)]
+
+
+
+
+async def get_weather_service(
+    uow_factory: Callable[[], UnitOfWork] = Depends(get_uow_factory)
+):
+    return WeatherService(
+        uow_factory=uow_factory,
+        weather_client=WeatherClient()
+    )
+
+
+DepWeatherService = Annotated["WeatherService", Depends(get_weather_service)]
+
+
+
+
 
 
 
