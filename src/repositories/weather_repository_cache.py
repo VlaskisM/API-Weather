@@ -1,23 +1,15 @@
 from abc import ABC, abstractmethod
 from typing import Any
-
 from redis.asyncio import Redis
-
 from src.repositories.weather_repository import WeatherRepository
-from src.schemas.schemas_weather import CurrentWeatherOut
+from src.models.model_weather import Weather
+from src.models.model_city import City
+from src.clients.weather_client import WeatherClient
 
 
 class AbstractCacheWeatherRepository(ABC):
     @abstractmethod
-    async def get_current_weather(self, name_city: str) -> CurrentWeatherOut | None:
-        pass
-
-    @abstractmethod
-    async def save_current_weather(self, weather: CurrentWeatherOut) -> None:
-        pass
-
-    @abstractmethod
-    async def delete_current_weather(self, name_city: str) -> None:
+    async def get_current_weather_by_coords(self, weather_client: WeatherClient, city: City) -> Weather:
         pass
 
 
@@ -27,24 +19,24 @@ class CacheWeatherRepository:
         self._redis = redis
         self._rep = rep
 
-    async def get_current_weather(self, name_city: str) -> CurrentWeatherOut | None:
-        key = self.get_key(name_city)
+
+    async def get_current_weather_by_coords(self, weather_client: WeatherClient, city: City) -> Weather:
+        key = self.get_key(city.name_city)
         weather_cache = await self._redis.get(key)
         if weather_cache is not None:
-            return CurrentWeatherOut.model_validate_json(weather_cache)
+            return Weather.model_validate_json(weather_cache)
 
-        weather = await self._rep.get_current_weather(name_city=name_city, _session=self._session)
-        if weather is not None:
-            await self._redis.set(key, weather.model_dump_json(), ex=900)
-        return weather
+        weather_cache = await weather_client.get_current_weather_by_coords(
+            name_city=city.name_city,
+            latitude=city.latitude,
+            longitude=city.longitude
+        )
 
-    async def save_current_weather(self, weather: CurrentWeatherOut) -> None:
-        await self._rep.save_current_weather(weather=weather, _session=self._session)
-        await self._redis.set(self.get_key(weather.name_city), weather.model_dump_json(), ex=900)
+        await self._redis.set(key, weather_cache.model_dump_json())
+        await self._rep.add_weather(Weather.model_validate(weather_cache), session = self._session)
 
-    async def delete_current_weather(self, name_city: str) -> None:
-        await self._redis.delete(self.get_key(name_city))
-        await self._rep.delete_current_weather(name_city=name_city, _session=self._session)
+
+        return Weather.model_validate(weather_cache)
 
     @staticmethod
     def get_key(name_city: str) -> str:

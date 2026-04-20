@@ -1,44 +1,20 @@
 from abc import ABC, abstractmethod
 from typing import Any
-
 from src.schemas.schemas_weather import CurrentWeatherOut
+from src.models.model_weather import Weather
 
 
 class AbstractWeatherRepository(ABC):
+    
     @abstractmethod
-    async def get_current_weather(self, name_city: str, _session: Any) -> CurrentWeatherOut | None:
+    async def add_weather(weather: Weather) -> None:
         pass
+    
 
-    @abstractmethod
-    async def save_current_weather(self, weather: CurrentWeatherOut, _session: Any) -> None:
-        pass
+class WeatherRepository(AbstractWeatherRepository):
+    
 
-    @abstractmethod
-    async def delete_current_weather(self, name_city: str, _session: Any) -> None:
-        pass
+    async def add_weather(weather: Weather, session: Any) -> None:
+        await weather.insert(session=session)
 
-
-class WeatherRepository:
-    async def get_current_weather(
-        self,
-        name_city: str,
-        _session: Any,
-    ) -> CurrentWeatherOut | None:
-        # Storage integration will be implemented with weather collection model.
-        return None
-
-    async def save_current_weather(
-        self,
-        weather: CurrentWeatherOut,
-        _session: Any,
-    ) -> None:
-        # Storage integration will be implemented with weather collection model.
-        return None
-
-    async def delete_current_weather(
-        self,
-        name_city: str,
-        _session: Any,
-    ) -> None:
-        # Storage integration will be implemented with weather collection model.
-        return None
+    
