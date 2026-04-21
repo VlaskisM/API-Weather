@@ -34,6 +34,7 @@ async def add_city(
 
 
 
+
 @router.get("/all", response_model=list[CityOutPut])
 async def get_all_citys(
     city_service: DepCityService,
@@ -45,7 +46,7 @@ async def get_all_citys(
 
 
 
-@router.delete("/cities/{name_city}")
+@router.delete("/{name_city}")
 async def delete_city(
     name_city: str,
     city_service: DepCityService

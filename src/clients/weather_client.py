@@ -19,11 +19,8 @@ class WeatherClientInterface(ABC):
     
     @abstractmethod
     async def geocode(self, name_city: str) -> tuple[float, float]:
-        ...
+        pass
 
-    @abstractmethod
-    async def get_current_weather(self, name_city: str) -> dict[str, Any]:
-        ...
 
     @abstractmethod
     async def get_current_weather_by_coords(
@@ -33,7 +30,7 @@ class WeatherClientInterface(ABC):
         latitude: float,
         longitude: float,
     ) -> dict[str, Any]:
-        ...
+        pass
 
 
 class WeatherClient(WeatherClientInterface):
@@ -67,8 +64,6 @@ class WeatherClient(WeatherClientInterface):
             raise CityNotFoundError(f"City {name_city} not found")
 
         return tuple([data[0].get("lat"), data[0].get("lon")])
-
-
 
 
 

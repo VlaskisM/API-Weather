@@ -46,28 +46,18 @@ class UnitOfWork(UnitOfWorkInterface):
         
 
     async def __aenter__(self):
-        self._session = self._client.start_session()
-        await self._session.start_transaction()
+        # Transactions are disabled: repositories run without Mongo session.
+        self._session = None
         self.cities = CacheCityRepository(session=self._session, redis=self._redis, rep=self._city_rep)
         self.weather = CacheWeatherRepository(session=self._session, redis=self._redis, rep=self._weather_rep)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        try:
-            if exc_type:
-                await self.rollback()
-            else:
-                await self.commit()
-        finally:
-            if self._session is not None:
-                await self._session.end_session()
-                self._session = None
+        self._session = None
             
 
     async def commit(self):
-        if self._session is not None:
-            await self._session.commit_transaction()
+        return None
 
     async def rollback(self):
-        if self._session is not None:
-            await self._session.abort_transaction()
+        return None

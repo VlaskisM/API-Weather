@@ -64,6 +64,7 @@ class CityService(CityServiceInterface):
             if not city:
                 return None
 
+            await uow.weather.delete_by_city(name_city)
             city = await uow.cities.del_city(name_city)
 
             return self._to_city_output(city)

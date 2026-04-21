@@ -8,3 +8,15 @@ class CurrentWeatherOut(BaseModel):
     humidity: int
     description: str
     wind_speed: float
+
+
+class WeatherRefreshError(BaseModel):
+    name_city: str
+    reason: str
+
+
+class WeatherRefreshOut(BaseModel):
+    total_cities: int
+    refreshed: int
+    failed: int
+    errors: list[WeatherRefreshError]

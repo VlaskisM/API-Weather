@@ -5,11 +5,10 @@ services:
     ports:
       - "${MONGO_PORT}:27017"
     restart: unless-stopped
-    command: ["mongod", "--bind_ip_all", "--replSet", "rs0"]
     volumes:
       - mongo_data:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand({ ping: 1 }).ok"]
+      test: ["CMD", "mongosh", "--quiet", "--port", "27017", "--eval", "db.adminCommand({ ping: 1 }).ok"]
       interval: 10s
       timeout: 5s
       retries: 10
